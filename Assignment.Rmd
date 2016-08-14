@@ -1,0 +1,115 @@
+---
+title: "Assignment Writeup: Human Activity Recognition"
+author: "David Pountain"
+date: "August 14, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,message=FALSE,warning=FALSE)
+```
+
+## Introduction
+The purpose of this assignment was to predict activity given sensor data.  In this case we are predicting correct vs incorrect execution of an excercise.  The data for this assignment is taken from the **Qualitative Activity Recognition of Weight Lifting Exercises** (Velloso et al 2013)
+
+## The Code
+
+### Load the libraries used
+The caret package was used for this assignment.  The doParallel package is used to take advantage of the multiple cores on the machine where code is executed.
+
+```{r libraries}
+library(caret)
+library(doParallel)
+
+#set the seed
+set.seed(8675)
+```
+
+### Configure for Parallel Processing
+```{r ConfigureParallel}
+cluster<- makeCluster(detectCores())
+registerDoParallel(cluster)
+```
+
+### Load the data ### 
+For the purpose of this assigment, data was downloaded from links provided on assignment description:
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>
+
+```{r LoadData}
+
+pmlData <- read.csv("pml-training.csv",stringsAsFactors=TRUE, na.strings=c("NA"))
+```
+
+### Feature Selection ###
+After analyzing the activity dataset, fields with low/no predictability were identified and removed.
+Note: normally, we might consider replacing NA with column mean, but after experimenation, we were still able 
+to create a highly accurate predictive model by simply excluding columns containing NA values.
+
+```{r FeatureSelection}
+
+#Remove first 5 columns (no predictability from these: name, timestamp, etc.)
+pmlData <- pmlData[,-(1:5)]
+
+#Remove columns with low variability
+pmlData <- pmlData[,-nearZeroVar(pmlData)]
+
+#Remove columns with NA content 
+pmlData <- pmlData[,colSums(is.na(pmlData)) == 0]
+```
+
+### Partition the provided training set###
+The training data provided was split into training and testing data sets (70/30 split).
+
+```{r partition}
+inTrain <- createDataPartition(pmlData$classe, p=0.7, list=FALSE)
+trainData <- pmlData[inTrain,]
+testData <- pmlData[-inTrain,]
+```
+
+### Train the predictive model###
+A random forest model using 5-fold cross validation was trained using the training data.
+The *classe* variable was predicted using all remaining features (post-selection) as predictors.
+
+```{r  modelTrain}
+# using Random Forest model, using cross-validation with 5 folds
+trainControl <-trainControl(method = "cv", number = 5, allowParallel = TRUE)
+rfModel <- train(classe ~. , data=trainData, method="rf" , preProcess=c("center","scale"), trControl=trainControl )
+```
+
+### Test accuracy of model ###
+We calcultated both in-sample and out-of-sample accuracy statistics.
+
+In sample:
+```{r  predictInSample}
+# predict the out of sample accuracy using our held out test set
+rfTrain <- predict(rfModel, trainData)
+confusionMatrix(rfTrain, trainData$classe)
+```
+
+Out of sample:
+```{r  predictOutOfSample}
+# predict the out of sample accuracy using our held out test set
+rfTesting <- predict(rfModel, testData)
+confusionMatrix(rfTesting, testData$classe)
+```
+
+### Predict on the supplied test set ###
+```{r  predictHoldout}
+holdout<-read.csv("pml-testing.csv", stringsAsFactors=TRUE )
+holdout$classe <- predict(rfModel, holdout)
+matrix(holdout$classe)
+```
+
+## Summary
+Above, we see that the model is very successful at predicting the activity, with the following error statistics:
+
+**In sample**: 100% accuracy (0% error )
+
+**Out of sample**: 99.88% accuracy (0.22% error).
+
+**"Holdout" (pml-testing.csv data)**: 100% accuracy (based on quiz submission results)
+
+## References
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
